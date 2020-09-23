@@ -1,4 +1,4 @@
-/*
+﻿/*
 ©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©
 ©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©©© AhkSpy ©©
 ©©©©©©©©©©©     ©   ©©©©©©   ©©©©©©©©        ©©©©©©©©©©©©©©©©©©©©©©©
@@ -146,6 +146,7 @@ Global ThisMode := IniRead("StartMode", "Control"), LastModeSave := (ThisMode = 
 
 , FontDPI := {96:12,120:10,144:8,168:6}[A_ScreenDPI], ScrollPos := {}, AccCoord := [], oOther := {}
 , oFind := {}, Edits := [], oMS := {}, oMenu := {}, oPubObj := {}
+, g_isWindowDpiAware
 
 , ClipAdd_Before := 0, ClipAdd_Delimiter := "`r`n"
 , HTML_Win, HTML_Control, HTML_Hotkey, rmCtrlX, rmCtrlY, widthTB, FullScreenMode, hColorProgress, hFindAllText, MsgAhkSpyZoom
@@ -204,6 +205,7 @@ If MemoryAnchor
 
 	
 FixIE()
+EnableIeDpi()
 SeDebugPrivilege() 
 OnExit("Exit")
 
@@ -1514,6 +1516,11 @@ AccInfoUnderMouse(mx, my, wx, wy, cx, cy, caX, caY, WinID, ControlID) {
 	AccObj := ""
 	If (oOther.AccCLOAKEDWinID != oPubObj.Acc.WinID)
 		ObjRelease(oPubObj.Acc.pAccObj)
+
+	if !g_isWindowDpiAware := _isWindowDpiAware(WinID) {
+		mx := Round( mx / (A_ScreenDPI/96) )
+		my := Round( my / (A_ScreenDPI/96) )
+	}
 		
 		;;  https://docs.microsoft.com/en-us/windows/win32/api/oleacc/nf-oleacc-accessibleobjectfrompoint
 	If DllCall("oleacc\AccessibleObjectFromPoint"
@@ -3189,7 +3196,13 @@ ShowMarker(x, y, w, h, b := 4) {
 	ShowMarkers(oShowMarkers, x, y, w, h, b)
 }
 
-ShowAccMarker(x, y, w, h, b := 2) { 
+ShowAccMarker(x, y, w, h, b := 2) {
+	if !g_isWindowDpiAware {
+		x := Round(x*(A_ScreenDPI/96))
+		y := Round(y*(A_ScreenDPI/96))
+		w := Round(w*(A_ScreenDPI/96))
+		h := Round(h*(A_ScreenDPI/96))
+	}
 	ShowMarkers(oShowAccMarkers, x, y, w, h, b)
 }
 
@@ -6567,6 +6580,41 @@ DeleteDC(hdc) {
 
 CreateCompatibleDC(hdc=0) {
 	Return DllCall("CreateCompatibleDC", "UPtr", hdc)
+}
+
+_isWindowDpiAware(hwnd) {
+	static last
+
+	if (hwnd = last.hwnd)
+		return last.val
+
+	DllCall("GetWindowThreadProcessId", "ptr", hwnd, "int*", pid)
+	if (pid = last.pid)
+		return last.val, last.hwnd := hwnd
+
+	return val := GetProcessDpiAwareness(pid)
+	     , last := {pid: pid, hwnd: hwnd, val: val}
+}
+
+GetProcessDpiAwareness(pid) {
+	static h := DllCall("LoadLibrary", "str", "Shcore.dll", "ptr")
+	static GetProcessDpiAwareness := DllCall("GetProcAddress", "ptr", h, "astr", "GetProcessDpiAwareness", "ptr")
+	if hProcess := DllCall("OpenProcess", "uint", 0x0400, "int", false, "uint", pid, "ptr")
+	{
+		DllCall(GetProcessDpiAwareness, "ptr", hProcess, "int*", PROCESS_DPI_AWARENESS)
+		DllCall("CloseHandle", "ptr", hProcess)
+		return PROCESS_DPI_AWARENESS
+	}
+}
+
+EnableIeDpi(bEnable := true, exeName := "") {
+	if (exeName = "")
+		exeName := A_IsCompiled ? A_ScriptName : RegExReplace(A_AhkPath, ".*\\")
+
+	keyName := "HKCU\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_96DPI_PIXEL"
+	RegRead, v, %keyName%, %exeName%
+	if (v != bEnable)
+		RegWrite, REG_DWORD, %keyName%, %exeName%, %bEnable%
 }
 
 
